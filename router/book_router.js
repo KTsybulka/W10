@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const path = require("path");
 const Book = require("../models/book");
-const validateBook = require("../middleware/addbook_validator");
+const validateBook = require("../middleware/validator");
 
 router.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "../views", "books.html"));
