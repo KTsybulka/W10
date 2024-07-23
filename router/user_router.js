@@ -1,3 +1,4 @@
+// user_router.js
 const express = require("express");
 const router = express.Router();
 const path = require("path");
@@ -8,14 +9,70 @@ const {
   validateUserLogin,
 } = require("../middleware/validator");
 
-// Serve static files
-router.get("/user/:id", (req, res) => {
-  res.sendFile(path.join(__dirname, "../views", "books.html"));
-});
+const authMiddleware = require("../middleware/auth");
 
-router.get("/user-list", (req, res) => {
-  res.sendFile(path.join(__dirname, "../views", "books.html"));
-});
+
+// Serve static files
+//commented out due to how express handles routing checks, will reimplement later
+// router.get("/", (req, res) => {
+//   res.sendFile(path.join(__dirname, "../views", "user-list.html"));
+// });
+// router.get("/:id", (req, res) => {
+//   res.sendFile(path.join(__dirname, "../views", "user.html"));
+// });
+router
+  .route("/login")
+  .get((req, res) => {
+    res.sendFile(path.join(__dirname, "../views", "login.html"));
+  })
+  .post(validateUserLogin, (req, res, next) => {
+    const { email, password } = req.body;
+
+    User.findOne({ email })
+      .then((user) => {
+        if (!user) {
+          console.log(`User with email ${email} not found`);
+          return res
+            .status(400)
+            .json({ error: `User with email ${email} not found` });
+        }
+
+        bcrypt.compare(password, user.password).then((isMatched) => {
+          if (!isMatched) {
+            return res
+              .status(400)
+              .json({ error: `Incorrect password for user ${email}` });
+          }
+
+          // Save user info in session
+          req.session.user = {
+            id: user._id,
+            email: user.email,
+            username: user.username,
+            first_name: user.first_name,
+            // Add any other necessary user data
+          };
+
+          // Save the session explicitly
+          req.session.save((err) => {
+            if (err) {
+              console.error("Error saving to session storage: ", err);
+              return next(new Error("Error saving session"));
+            }
+            console.log(
+              `Hello ${user.first_name}, with username ${user.username} (${email}) logged in successfully`
+            );
+            res.json({
+              message: `Hello ${user.first_name}, with username ${user.username} (${email}) logged in successfully`,
+            });
+          });
+        });
+      })
+      .catch((error) => {
+        console.error("Error during login:", error);
+        res.status(500).json({ error: "Internal Server Error" });
+      });
+  });
 
 // User signup
 router
@@ -48,43 +105,63 @@ router
       });
   });
 
-// User login
-router
-  .route("/login")
-  .get(validateUserLogin, (req, res) => {
-    res.sendFile(path.join(__dirname, "../views", "login.html"));
-  })
-  .post((req, res) => {
-    const { email, password } = req.body;
+// Check login status
+router.get("/check-login", (req, res) => {
+  if (req.session.user) {
+    // If user session exists, return user data
+    res.json({
+      isLoggedIn: true,
+      user: req.session.user,
+    });
+  } else {
+    // If user session does not exist, return isLoggedIn false
+    res.json({
+      isLoggedIn: false,
+    });
+  }
+});
 
-    User.findOne({ email })
-      .then((user) => {
-        if (!user) {
-          console.log(`User with email ${email} not found`);
-          return res
-            .status(400)
-            .json({ error: `User with email ${email} not found` });
-        }
+// User logout
+router.post("/logout", (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      console.error("Error during logout:", err);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
 
-        return bcrypt.compare(password, user.password).then((isMatched) => {
-          if (!isMatched) {
-            return res
-              .status(400)
-              .json({ error: `Incorrect password for user ${email}` });
-          }
-
-          console.log(
-            `Hello ${user.first_name}, with username ${user.username} (${email}) logged in successfully`
-          );
-          res.json({
-            message: `Hello ${user.first_name}, with username ${user.username} (${email}) logged in successfully`,
-          });
-        });
-      })
-      .catch((error) => {
-        console.error("Error during login:", error);
-        res.status(500).json({ error: "Internal Server Error" });
-      });
+    res.json({ message: "Logged out successfully" });
   });
+});
+
+router.get("/api/users", authMiddleware, (req, res) => {
+  User.find({}, { password: 0, createdAt: 0, updatedAt: 0, __v: 0 })
+    .then((users) => {
+      res.json(users);
+    })
+    .catch((err) => {
+      console.error("Error fetching user list:", err);
+      res.status(500).json({ error: "Internal Server Error" });
+    });
+});
+
+router.get("/api/user/:id", authMiddleware, (req, res) => {
+  User.findById(req.params.id, {
+    password: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    __v: 0,
+  })
+    .then((user) => {
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      console.log(user);
+      res.json(user);
+    })
+    .catch((err) => {
+      console.error("Error fetching user data:", err);
+      res.status(500).json({ error: "Internal Server Error" });
+    });
+});
 
 module.exports = router;
